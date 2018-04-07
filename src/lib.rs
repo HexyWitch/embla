@@ -31,6 +31,7 @@ pub mod platform_web;
 pub use platform_web as platform;
 
 pub mod assets;
+pub mod graphics;
 pub mod input;
 pub mod math;
 pub mod rendering_api;
