@@ -1,6 +1,6 @@
+use input::{Key, MouseButton};
 use sdl2::keyboard::Keycode as Sdl2Keycode;
 use sdl2::mouse::MouseButton as Sdl2MouseButton;
-use input::{Key, MouseButton};
 
 pub fn to_mouse_button(button: Sdl2MouseButton) -> MouseButton {
     match button {
@@ -15,6 +15,7 @@ pub fn to_mouse_button(button: Sdl2MouseButton) -> MouseButton {
 pub fn to_key(key_code: Sdl2Keycode) -> Key {
     match key_code {
         Sdl2Keycode::Backspace => Key::Backspace,
+        Sdl2Keycode::Space => Key::Space,
         Sdl2Keycode::Tab => Key::Tab,
         Sdl2Keycode::Return => Key::Return,
         Sdl2Keycode::LShift => Key::Shift,

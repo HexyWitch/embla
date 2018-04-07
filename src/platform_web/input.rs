@@ -20,6 +20,7 @@ pub fn to_key(key_code: i32) -> Key {
         19 => Key::Pause,
         20 => Key::CapsLock,
         27 => Key::Escape,
+        32 => Key::Space,
         33 => Key::PageUp,
         34 => Key::PageDown,
         35 => Key::End,
