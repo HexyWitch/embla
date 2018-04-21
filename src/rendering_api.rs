@@ -4,6 +4,12 @@ use failure::Error;
 
 use assets::Image;
 
+#[derive(Debug, Clone, Copy)]
+pub enum TextureFiltering {
+    Nearest,
+    Linear,
+}
+
 #[derive(Clone, Copy)]
 pub enum VertexAttributeType {
     Float,
@@ -50,7 +56,10 @@ pub trait Renderer {
     fn screen_size() -> (i32, i32);
     fn create_vertex_buffer() -> Result<Self::VertexBuffer, Error>;
     fn create_program(vs: &str, fs: &str) -> Result<Self::Program, Error>;
-    fn create_texture(size: (u32, u32)) -> Result<Self::Texture, Error>;
+    fn create_texture(
+        size: (u32, u32),
+        filtering: Option<TextureFiltering>,
+    ) -> Result<Self::Texture, Error>;
 
     fn render_vertices<V: Vertex>(
         vertex_buffer: &Self::VertexBuffer,

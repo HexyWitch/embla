@@ -9,7 +9,8 @@ use std::ptr;
 use failure::Error;
 
 use assets::Image;
-use rendering_api::{Program, Renderer, Texture, Uniform, Vertex, VertexAttributeType};
+use rendering_api::{Program, Renderer, Texture, TextureFiltering, Uniform, Vertex,
+                    VertexAttributeType};
 
 struct GLVertexShader {
     gl_ref: GLuint,
@@ -77,13 +78,21 @@ pub struct GLTexture {
 }
 
 impl GLTexture {
-    fn new(size: (u32, u32)) -> GLTexture {
+    fn new(size: (u32, u32), filtering: Option<GLenum>) -> GLTexture {
         let mut gl_ref = 0;
         unsafe {
             gl::GenTextures(1, &mut gl_ref);
             gl::BindTexture(gl::TEXTURE_2D, gl_ref);
-            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as GLint);
-            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as GLint);
+            gl::TexParameteri(
+                gl::TEXTURE_2D,
+                gl::TEXTURE_MIN_FILTER,
+                filtering.unwrap_or(gl::LINEAR) as GLint,
+            );
+            gl::TexParameteri(
+                gl::TEXTURE_2D,
+                gl::TEXTURE_MAG_FILTER,
+                filtering.unwrap_or(gl::LINEAR) as GLint,
+            );
 
             gl::TexImage2D(
                 gl::TEXTURE_2D,
@@ -154,8 +163,16 @@ impl Renderer for GLRenderer {
 
         Ok(GLProgram::new(vs, fs)?)
     }
-    fn create_texture(size: (u32, u32)) -> Result<GLTexture, Error> {
-        Ok(GLTexture::new(size))
+    fn create_texture(
+        size: (u32, u32),
+        filtering: Option<TextureFiltering>,
+    ) -> Result<GLTexture, Error> {
+        let filtering = filtering.map(|f| match f {
+            TextureFiltering::Linear => gl::LINEAR,
+            TextureFiltering::Nearest => gl::NEAREST,
+        });
+
+        Ok(GLTexture::new(size, filtering))
     }
 
     fn render_vertices<V: Vertex>(
