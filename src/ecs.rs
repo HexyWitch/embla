@@ -52,12 +52,17 @@ pub struct Entity {
     components: ComponentMap,
 }
 
+#[derive(Clone, Copy)]
+pub struct EntityId(pub usize);
+
 impl Entity {
     pub fn new(id: usize) -> Entity {
-        Entity {
+        let mut e = Entity {
             id,
             components: ComponentMap::new(),
-        }
+        };
+        e.insert(EntityId(id));
+        e
     }
 
     pub fn id(&self) -> usize {
