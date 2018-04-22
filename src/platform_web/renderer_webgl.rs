@@ -4,7 +4,8 @@ use js::webgl;
 use js::webgl::types::*;
 
 use assets::Image;
-use rendering_api::{Program, Renderer, Texture, Uniform, Vertex, VertexAttributeType};
+use rendering_api::{Program, Renderer, Texture, TextureFiltering, Uniform, Vertex,
+                    VertexAttributeType};
 
 struct WebGLVertexShader {
     handle: webgl::Shader,
@@ -105,18 +106,18 @@ impl Program<WebGLTexture> for WebGLProgram {
 pub struct WebGLTexture(webgl::Texture);
 
 impl WebGLTexture {
-    fn new(size: (u32, u32)) -> WebGLTexture {
+    fn new(size: (u32, u32), filtering: Option<GLenum>) -> WebGLTexture {
         let handle = webgl::gl_create_texture();
         webgl::gl_bind_texture(webgl::TEXTURE_2D, &handle);
         webgl::gl_tex_parameter_i(
             webgl::TEXTURE_2D,
             webgl::TEXTURE_MIN_FILTER,
-            webgl::LINEAR as GLint,
+            filtering.unwrap_or(webgl::LINEAR) as GLint,
         );
         webgl::gl_tex_parameter_i(
             webgl::TEXTURE_2D,
             webgl::TEXTURE_MAG_FILTER,
-            webgl::LINEAR as GLint,
+            filtering.unwrap_or(webgl::LINEAR) as GLint,
         );
 
         webgl::gl_tex_image_2d_empty(
@@ -182,8 +183,15 @@ impl Renderer for WebGLRenderer {
 
         Ok(WebGLProgram::new(vs, fs)?)
     }
-    fn create_texture(size: (u32, u32)) -> Result<WebGLTexture, Error> {
-        Ok(WebGLTexture::new(size))
+    fn create_texture(
+        size: (u32, u32),
+        filtering: Option<TextureFiltering>,
+    ) -> Result<WebGLTexture, Error> {
+        let filtering = filtering.map(|f| match f {
+            TextureFiltering::Linear => webgl::LINEAR,
+            TextureFiltering::Nearest => webgl::NEAREST,
+        });
+        Ok(WebGLTexture::new(size, filtering))
     }
 
     fn render_vertices<V: Vertex>(

@@ -94,11 +94,11 @@ where
     let mut open_set = NodeSet::new();
     open_set.insert(Node::new(start.clone(), None, C::default()));
 
-    while let Some(node) = open_set.take_next() {
-        for (neighbor, g) in adjacent(node.n.clone()) {
-            if neighbor == end {
-                let mut path = vec![neighbor, node.n];
-                let mut prev = node.prev;
+    while let Some(parent) = open_set.take_next() {
+        for (node, cost) in adjacent(parent.n.clone()) {
+            if node == end {
+                let mut path = vec![node, parent.n];
+                let mut prev = parent.prev;
                 while let Some(p) = prev {
                     path.push(p.clone());
                     prev = closed_set.get(&p).and_then(|n| n.prev.clone());
@@ -106,22 +106,20 @@ where
                 return Some(path.into_iter().rev().collect());
             }
 
-            let g = node.cost + g;
-            if open_set.get(&neighbor).map(|n| n.cost < g).unwrap_or(false) {
+            let g = parent.cost + cost;
+            let h = heuristic(&node, &end);
+            let f = g + h;
+
+            if open_set.get(&node).map(|n| n.cost < f).unwrap_or(false) {
                 continue;
             }
 
-            if closed_set
-                .get(&neighbor)
-                .map(|n| n.cost > g)
-                .unwrap_or(true)
-            {
-                let f = g + heuristic(&neighbor, &end);
-                open_set.insert(Node::new(neighbor, Some(node.n.clone()), f));
+            if closed_set.get(&node).map(|n| n.cost > g).unwrap_or(true) {
+                open_set.insert(Node::new(node, Some(parent.n.clone()), f));
             }
         }
 
-        closed_set.insert(node);
+        closed_set.insert(parent);
     }
 
     None
