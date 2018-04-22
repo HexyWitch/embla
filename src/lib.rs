@@ -36,5 +36,6 @@ pub mod graphics;
 pub mod input;
 pub mod math;
 pub mod rendering_api;
+pub mod util;
 
 pub use platform::*;
