@@ -277,6 +277,7 @@ impl InputState {
     }
 }
 
+#[derive(Clone)]
 pub struct Input {
     last_state: InputState,
     current_state: InputState,
