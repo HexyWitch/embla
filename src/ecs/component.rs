@@ -1,105 +1,151 @@
-use std::any::TypeId;
-use std::collections::{HashMap, HashSet};
+use std::any::{Any, TypeId};
+use std::cell::{RefCell, RefMut};
+use std::collections::{BTreeSet, HashMap};
+use std::mem;
 
-pub struct ComponentMap {
-    map: HashMap<TypeId, *mut ()>,
-    removers: HashMap<TypeId, Box<Fn(&mut HashMap<TypeId, *mut ()>)>>,
+pub struct ComponentStorage<T> {
+    index: BTreeSet<usize>,
+    components: Vec<Option<T>>,
+    free: Vec<usize>,
 }
 
-impl ComponentMap {
-    pub fn new() -> ComponentMap {
-        ComponentMap {
-            map: HashMap::new(),
-            removers: HashMap::new(),
+impl<T> ComponentStorage<T> {
+    pub fn new() -> ComponentStorage<T> {
+        ComponentStorage {
+            index: BTreeSet::new(),
+            components: Vec::new(),
+            free: Vec::new(),
         }
     }
 
-    pub fn get<C: 'static>(&self) -> Option<&C> {
-        unsafe { self.map.get(&TypeId::of::<C>()).map(|c| &*(*c as *mut C)) }
+    pub fn index(&self) -> &BTreeSet<usize> {
+        &self.index
     }
 
-    pub fn insert<C: 'static>(&mut self, c: C) {
-        let type_id = TypeId::of::<C>();
-        self.map
-            .insert(type_id.clone(), Box::into_raw(Box::new(c)) as *mut ());
-        self.removers.insert(
-            type_id,
-            Box::new(move |map| unsafe {
-                map.remove(&type_id).map(|p| Box::from_raw(p as *mut C));
-            }),
-        );
-    }
-
-    pub fn remove<C: 'static>(&mut self) -> Option<C> {
-        let type_id = TypeId::of::<C>();
-        self.removers.remove(&type_id);
-        unsafe {
-            self.map
-                .remove(&type_id)
-                .map(|c| *Box::from_raw(c as *mut C))
+    pub fn insert(&mut self, entity_id: usize, c: T) -> usize {
+        self.index.insert(entity_id);
+        if let Some(k) = self.free.pop() {
+            self.components[k] = Some(c);
+            k
+        } else {
+            self.components.push(Some(c));
+            self.components.len() - 1
         }
     }
 
-    pub fn type_set(&self) -> HashSet<TypeId> {
-        self.map.keys().cloned().collect()
+    pub fn remove(&mut self, k: usize) -> Option<T> {
+        self.index.remove(&k);
+        if let Some(v) = self.components.get_mut(k).and_then(|v| v.take()) {
+            self.free.push(k);
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn get(&self, k: usize) -> Option<&T> {
+        self.components.get(k).and_then(|v| v.as_ref())
+    }
+
+    pub fn get_mut(&mut self, k: usize) -> Option<&mut T> {
+        self.components.get_mut(k).and_then(|v| v.as_mut())
     }
 }
 
-impl Drop for ComponentMap {
-    fn drop(&mut self) {
-        for (_, remover) in self.removers.drain() {
-            (*remover)(&mut self.map);
-        }
+pub trait GenericComponentStorage {
+    fn remove(&mut self, id: usize);
+    fn as_any(&self) -> &Any;
+    fn as_any_mut(&mut self) -> &mut Any;
+}
+
+impl<T: 'static> GenericComponentStorage for ComponentStorage<T> {
+    fn remove(&mut self, id: usize) {
+        self.remove(id);
+    }
+    fn as_any(&self) -> &Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut Any {
+        self
     }
 }
 
 pub trait ComponentSet<'a> {
     type MutRefs;
 
-    fn type_set() -> HashSet<TypeId>;
-
-    // unsafe to allow unchecked interior mutability
-    // only one mut_refs borrow at a time is allowed
-    unsafe fn mut_refs(component_map: &'a ComponentMap) -> Option<Self::MutRefs>;
+    fn iter_mut_refs(
+        entities: &'a Vec<Option<HashMap<TypeId, usize>>>,
+        storage: &'a HashMap<TypeId, RefCell<Box<GenericComponentStorage>>>,
+    ) -> Box<Iterator<Item = Self::MutRefs> + 'a>;
 }
 
 macro_rules! implement_tuple_set {
-    ($( $x:ident ),* ) => {
-        impl<'a, $($x: 'static, )*> ComponentSet<'a> for ($($x),*,) {
-            type MutRefs = ($(&'a mut $x),*,);
+    ($($x:ident:$xn:ident),*) => {
+        impl<'a, $($x: 'static,)*> ComponentSet<'a> for ($($x,)*) {
+            type MutRefs = ($(&'a mut $x,)*);
 
-            fn type_set() -> HashSet<TypeId> {
-                let mut set = HashSet::new();
+            fn iter_mut_refs(
+                entities: &'a Vec<Option<HashMap<TypeId, usize>>>,
+                storage: &'a HashMap<TypeId, RefCell<Box<GenericComponentStorage>>>
+            ) -> Box<Iterator<Item = Self::MutRefs> + 'a> {
                 $(
-                    set.insert(TypeId::of::<$x>());
+                    let $xn = RefMut::map(
+                        storage.get(&TypeId::of::<$x>()).expect("component not registered").borrow_mut(),
+                        |s| s.as_any_mut().downcast_mut::<ComponentStorage<$x>>().unwrap()
+                    );
                 )*
-                set
-            }
-            unsafe fn mut_refs(component_map: &'a ComponentMap) -> Option<Self::MutRefs> {
-                let mut type_set = Self::type_set();
-                $(
-                    if !type_set.remove(&TypeId::of::<$x>()) {
-                        panic!("encountered duplicate component in component set");
+                let index = vec![$($xn.index()),*]
+                    .into_iter()
+                    .fold(None, |l, r| if let Some(l) = l { Some(&l & r) } else { Some(r.clone()) })
+                    .unwrap();
+
+                struct ComponentIterator<'a, I: Iterator<Item = usize>, $($x: 'a),*> {
+                    index: I,
+                    entities: &'a Vec<Option<HashMap<TypeId, usize>>>,
+                    $($xn: (RefMut<'a, ComponentStorage<$x>>)),*
+                }
+                impl<'a, I: Iterator<Item = usize>, $($x: 'static),*> Iterator for ComponentIterator<'a, I, $($x),*> {
+                    type Item = ($(&'a mut $x,)*);
+
+                    fn next(&mut self) -> Option<Self::Item> {
+                        if let Some(k) = self.index.next() {
+                            let e = self.entities.get(k).expect("entity not found").as_ref().unwrap();
+                            $(let $xn = e.get(&TypeId::of::<$x>()).expect("entity index mismatch");)*
+
+                            // we can transmute the lifetime of the references to 'a
+                            // because iterating over a set of unique indexes guarantees
+                            // that each returned mutable references is unique for the
+                            // entire lifetime of the iterator
+                            unsafe {
+                                Some((
+                                    $(mem::transmute(self.$xn.get_mut(*$xn)?),)*
+                                ))
+                            }
+                        } else {
+                            None
+                        }
                     }
-                )*
+                }
 
-                Some((
-                    $(
-                        &mut *(*component_map.map.get(&TypeId::of::<$x>())? as *mut $x)
-                    ),*
-                ,))
+                Box::new(
+                    ComponentIterator {
+                        index: index.into_iter(),
+                        entities,
+                        $($xn),*
+                    }
+                )
             }
         }
     }
 }
-implement_tuple_set!{A}
-implement_tuple_set!{A, B}
-implement_tuple_set!{A, B, C}
-implement_tuple_set!{A, B, C, D}
-implement_tuple_set!{A, B, C, D, E}
-implement_tuple_set!{A, B, C, D, E, F}
-implement_tuple_set!{A, B, C, D, E, F, G}
-implement_tuple_set!{A, B, C, D, E, F, G, H}
-implement_tuple_set!{A, B, C, D, E, F, G, H, J}
-implement_tuple_set!{A, B, C, D, E, F, G, H, J, K}
-implement_tuple_set!{A, B, C, D, E, F, G, H, J, K, L}
+implement_tuple_set!{A:a}
+implement_tuple_set!{A:a, B:b}
+implement_tuple_set!{A:a, B:b, C:c}
+implement_tuple_set!{A:a, B:b, C:c, D:d}
+implement_tuple_set!{A:a, B:b, C:c, D:d, E:e}
+implement_tuple_set!{A:a, B:b, C:c, D:d, E:e, F:f}
+implement_tuple_set!{A:a, B:b, C:c, D:d, E:e, F:f, G:g}
+implement_tuple_set!{A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h}
+implement_tuple_set!{A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h, J:j}
+implement_tuple_set!{A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h, J:j, K:k}
+implement_tuple_set!{A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h, J:j, K:k, L:l}

@@ -3,8 +3,6 @@ use std::collections::{BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
 use std::ops::Add;
 
-use failure::Error;
-
 struct Node<Q, F> {
     n: Q,
     prev: Option<Q>,

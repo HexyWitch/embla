@@ -1,24 +1,21 @@
 use std::any::Any;
 use std::any::TypeId;
-use std::cell::{RefCell, RefMut};
-use std::collections::{BTreeSet, HashMap, HashSet};
-use std::marker;
+use std::cell::{Ref, RefCell, RefMut};
+use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
 use failure::Error;
 
 mod component;
-mod entity;
 
-use self::component::ComponentSet;
-use self::entity::Entity;
+use self::component::{ComponentSet, ComponentStorage, GenericComponentStorage};
 
 pub type ResourceEntry = Rc<RefCell<Box<Any>>>;
 
 pub struct World {
-    systems: HashMap<TypeId, (HashSet<TypeId>, fn(&mut World) -> Result<(), Error>)>,
-    system_index: HashMap<TypeId, BTreeSet<usize>>,
-    entities: Vec<Option<Entity>>,
+    component_index: HashMap<TypeId, BTreeSet<usize>>,
+    components: HashMap<TypeId, RefCell<Box<GenericComponentStorage>>>,
+    entities: Vec<Option<HashMap<TypeId, usize>>>,
     dead: Vec<usize>,
     resources: HashMap<TypeId, ResourceEntry>,
 }
@@ -26,48 +23,21 @@ pub struct World {
 impl World {
     pub fn new() -> World {
         World {
-            systems: HashMap::new(),
-            system_index: HashMap::new(),
+            component_index: HashMap::new(),
+            components: HashMap::new(),
             entities: Vec::new(),
             dead: Vec::new(),
             resources: HashMap::new(),
         }
     }
 
-    pub fn register_system<T: System + 'static>(&mut self) {
-        let type_id = TypeId::of::<T>();
-
-        let mut entity_index = BTreeSet::new();
-        let system_components = <T as System>::Components::type_set();
-        for e in self.entities.iter_mut().filter_map(|e| e.as_mut()) {
-            if e.component_set().is_superset(&system_components) {
-                entity_index.insert(e.id());
-            }
-        }
-        self.system_index.insert(type_id, entity_index);
-
-        fn runner<'a, T: System + 'static>(world: &'a mut World) -> Result<(), Error> {
-            let world_cb = WorldCallback {
-                system: marker::PhantomData::<T>,
-                component_lock: RefCell::new(()),
-                world,
-            };
-
-            T::run(world_cb)
-        }
-        self.systems.insert(
-            TypeId::of::<T>(),
-            (<T as System>::Components::type_set(), runner::<T>),
+    pub fn register_component<C: 'static>(&mut self) {
+        self.component_index
+            .insert(TypeId::of::<C>(), BTreeSet::new());
+        self.components.insert(
+            TypeId::of::<C>(),
+            RefCell::new(Box::new(ComponentStorage::<C>::new())),
         );
-    }
-
-    pub fn run_system<T: System + 'static>(&mut self) -> Result<(), Error> {
-        let type_id = TypeId::of::<T>();
-
-        let runner = self.systems.get(&type_id).expect("system not registered").1;
-        let res = (runner)(self);
-
-        res
     }
 
     pub fn entity<'a>(&'a mut self, id: usize) -> Option<EntityEntry<'a>> {
@@ -83,11 +53,11 @@ impl World {
 
     pub fn add_entity<'a>(&'a mut self) -> EntityEntry<'a> {
         let id = if let Some(id) = self.dead.pop() {
-            self.entities[id] = Some(Entity::new(id));
+            self.entities[id] = Some(HashMap::new());
             id
         } else {
             let id = self.entities.len();
-            self.entities.push(Some(Entity::new(id)));
+            self.entities.push(Some(HashMap::new()));
             id
         };
         EntityEntry {
@@ -97,6 +67,15 @@ impl World {
     }
 
     pub fn remove_entity(&mut self, id: usize) {
+        if let Some(e) = self.entities.remove(id) {
+            for type_id in e.keys() {
+                self.components
+                    .get_mut(type_id)
+                    .unwrap()
+                    .borrow_mut()
+                    .remove(id)
+            }
+        }
         if id < self.entities.len() {
             self.entities[id] = None;
         }
@@ -118,93 +97,72 @@ impl World {
         ))
     }
 
-    fn reindex_entity(&mut self, id: usize) {
-        let entity_components = self.entities[id].as_ref().unwrap().component_set();
-        for (type_id, (system_components, _)) in self.systems.iter() {
-            let index = self.system_index.get_mut(&type_id).unwrap();
-            if entity_components.is_superset(&system_components) {
-                index.insert(id);
-            } else {
-                index.remove(&id);
-            }
+    pub fn get_component<'b, C: 'static>(&'b self, id: usize) -> Option<Ref<'b, C>> {
+        if let Some(k) = self.entities
+            .get(id)
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .get(&TypeId::of::<C>())
+        {
+            Some(Ref::map(
+                self.components
+                    .get(&TypeId::of::<C>())
+                    .expect("component not registered")
+                    .borrow(),
+                |v| {
+                    v.as_any()
+                        .downcast_ref::<ComponentStorage<C>>()
+                        .unwrap()
+                        .get(*k)
+                        .unwrap()
+                },
+            ))
+        } else {
+            None
         }
     }
 
-    fn insert_component<T: 'static>(&mut self, id: usize, c: T) {
-        self.entities
-            .get_mut(id)
-            .expect("entity does not exist")
-            .as_mut()
-            .expect("entity is not alive")
-            .insert(c);
-
-        self.reindex_entity(id);
+    fn get_storage<T: 'static>(&mut self) -> Result<RefMut<ComponentStorage<T>>, Error> {
+        Ok(RefMut::map(
+            self.components
+                .get(&TypeId::of::<T>())
+                .ok_or_else(|| format_err!("component not registered"))?
+                .borrow_mut(),
+            |s| {
+                s.as_any_mut()
+                    .downcast_mut::<ComponentStorage<T>>()
+                    .unwrap()
+            },
+        ))
     }
 
-    fn remove_component<T: 'static>(&mut self, id: usize) {
-        self.entities
+    fn entity_mut(&mut self, id: usize) -> Result<&mut HashMap<TypeId, usize>, Error> {
+        Ok(self.entities
             .get_mut(id)
-            .expect("entity does not exist")
+            .ok_or_else(|| format_err!("entity does not exist"))?
             .as_mut()
-            .expect("entity is not alive")
-            .remove::<T>();
-
-        self.reindex_entity(id);
+            .ok_or_else(|| format_err!("entity is not alive"))?)
     }
-}
 
-pub trait System: Sized {
-    type Components: for<'a> ComponentSet<'a>;
+    fn insert_component<T: 'static>(&mut self, id: usize, c: T) -> Result<(), Error> {
+        let k = self.get_storage::<T>()?.insert(id, c);
+        self.entity_mut(id)?.insert(TypeId::of::<T>(), k);
+        Ok(())
+    }
 
-    fn run<'a>(world: WorldCallback<'a, Self>) -> Result<(), Error>;
-}
+    fn remove_component<T: 'static>(&mut self, id: usize) -> Result<Option<T>, Error> {
+        if let Some(k) = self.entity_mut(id)?.remove(&TypeId::of::<T>()) {
+            Ok(self.get_storage::<T>()?.remove(k))
+        } else {
+            Ok(None)
+        }
+    }
 
-pub struct WorldCallback<'a, T: System + 'static> {
-    system: marker::PhantomData<T>,
-    component_lock: RefCell<()>,
-    world: &'a mut World,
-}
-
-impl<'a, T: System + 'static> WorldCallback<'a, T> {
-    pub fn components<'b>(
+    pub fn with_components<'b, C: ComponentSet<'b>>(
         &'b self,
-    ) -> Result<impl Iterator<Item = <T::Components as ComponentSet>::MutRefs> + 'b, Error> {
-        let index = self.world.system_index.get(&TypeId::of::<T>()).unwrap();
-        let lock = self.component_lock
-            .try_borrow_mut()
-            .map_err(|_| format_err!("components must not be called recursively"))?;
-        Ok(self.world
-            .entities
-            .iter()
-            .enumerate()
-            .filter(move |(i, _)| index.contains(i))
-            .map(move |(_, e)| {
-                let _lock = &lock;
-
-                // Entity::components is unsafe because of unchecked internal mutability
-                // Calling it here is safe because:
-                // * WorldCallback holds a &mut World
-                // * No other immutable methods in WorldCallback access entity components
-                // * WorldCallback::components cannot be called recursively
-                unsafe {
-                    e.as_ref()
-                        .expect("indexed entity must be alive")
-                        .components::<<T as System>::Components>()
-                        .expect("indexed entity must contain all indexed components")
-                }
-            }))
-    }
-
-    pub fn add_entity(&'a mut self) -> EntityEntry<'a> {
-        self.world.add_entity()
-    }
-
-    pub fn remove_entity(&mut self, id: usize) {
-        self.world.remove_entity(id);
-    }
-
-    pub fn get_resource<R: 'static>(&self) -> Result<RefMut<R>, Error> {
-        self.world.get_resource::<R>()
+    ) -> Box<Iterator<Item = C::MutRefs> + 'b> {
+        C::iter_mut_refs(&self.entities, &self.components)
     }
 }
 
@@ -218,85 +176,76 @@ impl<'a> EntityEntry<'a> {
         self.id
     }
 
-    pub fn insert<C: 'static>(&mut self, c: C) -> &mut Self {
-        self.world.insert_component(self.id, c);
-        self
+    pub fn insert<C: 'static>(&mut self, c: C) -> Result<&mut Self, Error> {
+        self.world.insert_component(self.id, c)?;
+        Ok(self)
     }
 
-    pub fn remove<C: 'static>(&mut self) -> &mut Self {
-        self.world.remove_component::<C>(self.id);
-        self
-    }
-
-    pub fn get<'b, C: 'static>(&'b self) -> Option<&'b C> {
-        self.world
-            .entities
-            .get(self.id)
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .get::<C>()
+    pub fn remove<C: 'static>(&mut self) -> Result<&mut Self, Error> {
+        self.world.remove_component::<C>(self.id)?;
+        Ok(self)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{System, World, WorldCallback};
-    use failure::Error;
+    use super::World;
 
     struct Position(i32, i32);
     struct Velocity(i32, i32);
 
-    struct PositioningSystem;
-    impl System for PositioningSystem {
-        type Components = (Position,);
-
-        fn run(world: WorldCallback<Self>) -> Result<(), Error> {
-            for (mut pos,) in world.components()? {
-                pos.0 = 10;
-            }
-
-            Ok(())
-        }
-    }
-
-    struct MovementSystem;
-    impl System for MovementSystem {
-        type Components = (Position, Velocity);
-
-        fn run(world: WorldCallback<Self>) -> Result<(), Error> {
-            for (mut pos, vel) in world.components()? {
-                pos.0 += vel.0;
-                pos.1 += vel.1;
-            }
-
-            Ok(())
-        }
-    }
-
     #[test]
     fn ecs() {
         let mut world = World::new();
-        world.register_system::<PositioningSystem>();
-        world.register_system::<MovementSystem>();
+
+        world.register_component::<Position>();
+        world.register_component::<Velocity>();
 
         let e1 = world
             .add_entity()
-            .insert::<Position>(Position(0, 0))
-            .insert::<Velocity>(Velocity(5, 5))
+            .insert(Position(0, 0))
+            .unwrap()
+            .insert(Velocity(5, 5))
+            .unwrap()
             .id();
         let e2 = world
             .add_entity()
-            .insert::<Position>(Position(0, 0))
-            .insert::<Velocity>(Velocity(3, 4))
+            .insert(Position(0, 0))
+            .unwrap()
+            .insert(Velocity(3, 4))
+            .unwrap()
             .id();
-        let e3 = world.add_entity().insert::<Position>(Position(0, 0)).id();
+        let e3 = world.add_entity().insert(Position(0, 0)).unwrap().id();
 
-        world.run_system::<PositioningSystem>().unwrap();
-        world.run_system::<MovementSystem>().unwrap();
+        for (mut pos,) in world.with_components::<(Position,)>() {
+            pos.0 = 10;
+        }
 
-        assert_eq!(world.entity(e1).unwrap().get::<Position>().unwrap().0, 15);
-        assert_eq!(world.entity(e2).unwrap().get::<Position>().unwrap().0, 13);
-        assert_eq!(world.entity(e3).unwrap().get::<Position>().unwrap().0, 10);
+        for (mut pos, vel) in world.with_components::<(Position, Velocity)>() {
+            pos.0 += vel.0;
+            pos.1 += vel.1;
+        }
+
+        assert_eq!(world.get_component::<Position>(e1).unwrap().0, 15);
+        assert_eq!(world.get_component::<Position>(e2).unwrap().0, 13);
+        assert_eq!(world.get_component::<Position>(e3).unwrap().0, 10);
+
+        world.remove_component::<Position>(e1).unwrap();
+
+        for (mut pos,) in world.with_components::<(Position,)>() {
+            pos.0 = 5;
+        }
+
+        assert_eq!(world.get_component::<Position>(e2).unwrap().0, 5);
+        assert_eq!(world.get_component::<Position>(e3).unwrap().0, 5);
+
+        world.remove_entity(e3);
+
+        for (mut pos, vel) in world.with_components::<(Position, Velocity)>() {
+            pos.0 += vel.0;
+            pos.1 += vel.1;
+        }
+
+        assert_eq!(world.get_component::<Position>(e2).unwrap().0, 8);
     }
 }
