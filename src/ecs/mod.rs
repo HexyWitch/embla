@@ -1,8 +1,6 @@
-use std::any::Any;
 use std::any::TypeId;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::{BTreeSet, HashMap};
-use std::rc::Rc;
 
 use failure::Error;
 
@@ -10,14 +8,11 @@ mod component;
 
 use self::component::{ComponentSet, ComponentStorage, GenericComponentStorage};
 
-pub type ResourceEntry = Rc<RefCell<Box<Any>>>;
-
 pub struct World {
     component_index: HashMap<TypeId, BTreeSet<usize>>,
     components: HashMap<TypeId, RefCell<Box<GenericComponentStorage>>>,
     entities: Vec<Option<HashMap<TypeId, usize>>>,
     dead: Vec<usize>,
-    resources: HashMap<TypeId, ResourceEntry>,
 }
 
 impl World {
@@ -27,7 +22,6 @@ impl World {
             components: HashMap::new(),
             entities: Vec::new(),
             dead: Vec::new(),
-            resources: HashMap::new(),
         }
     }
 
@@ -80,21 +74,6 @@ impl World {
             self.entities[id] = None;
         }
         self.dead.push(id);
-    }
-
-    pub fn register_resource<R: 'static>(&mut self, r: R) {
-        self.resources
-            .insert(TypeId::of::<R>(), Rc::new(RefCell::new(Box::new(r))));
-    }
-
-    pub fn get_resource<R: 'static>(&self) -> Result<RefMut<R>, Error> {
-        Ok(RefMut::map(
-            self.resources
-                .get(&TypeId::of::<R>())
-                .ok_or_else(|| format_err!("resource not registered"))?
-                .borrow_mut(),
-            |r| r.downcast_mut::<R>().unwrap(),
-        ))
     }
 
     pub fn get_component<'b, C: 'static>(&'b self, id: usize) -> Option<Ref<'b, C>> {
