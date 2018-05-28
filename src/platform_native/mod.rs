@@ -1,3 +1,4 @@
+mod audio;
 mod input;
 mod renderer_gl;
 mod websocket;
@@ -5,6 +6,7 @@ mod websocket;
 use gl;
 use sdl2;
 
+use sdl2::audio::{AudioCallback, AudioSpecDesired};
 use sdl2::event::Event;
 use sdl2::video::GLProfile;
 use std::thread;
@@ -16,10 +18,30 @@ use failure::Error;
 
 use self::input::{to_key, to_mouse_button};
 
+pub use self::audio::AudioDevice;
 pub use self::renderer_gl::GLRenderer as Renderer;
 pub use self::websocket::Websocket;
 
-pub fn run<F: FnOnce() -> T, T: FnMut(f32, &Input) -> Result<(), Error> + 'static>(app_factory: F) {
+pub struct PlatformContext {
+    audio: sdl2::AudioSubsystem,
+}
+
+impl PlatformContext {
+    pub fn audio<T: FnMut(u8, f32, &mut [f32]) + 'static + Send>(
+        &self,
+        channels: u8,
+        cb: T,
+    ) -> AudioDevice {
+        AudioDevice::new(&self.audio, channels, cb)
+    }
+}
+
+pub fn run<
+    F: FnOnce(&PlatformContext) -> T,
+    T: FnMut(f32, &Input) -> Result<(), Error> + 'static,
+>(
+    app_factory: F,
+) {
     let sdl_context = sdl2::init().unwrap();
     let sdl_video = sdl_context.video().unwrap();
     {
@@ -42,7 +64,11 @@ pub fn run<F: FnOnce() -> T, T: FnMut(f32, &Input) -> Result<(), Error> + 'stati
 
     let mut event_pump = sdl_context.event_pump().unwrap();
     let mut input = Input::new();
-    let mut main_loop = app_factory();
+
+    let context = PlatformContext {
+        audio: sdl_context.audio().unwrap(),
+    };
+    let mut main_loop = app_factory(&context);
     'main: loop {
         let mut input_events = Vec::new();
         for event in event_pump.poll_iter() {

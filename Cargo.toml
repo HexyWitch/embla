@@ -2,6 +2,11 @@
 name = "embla"
 version = "0.1.0"
 
+[workspace]
+members = [
+    "lib/js"
+]
+
 [dependencies]
 failure = "0.1.1"
 png = "*"

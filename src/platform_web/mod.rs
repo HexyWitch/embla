@@ -1,3 +1,4 @@
+mod audio;
 mod console_writer;
 mod input;
 mod renderer_webgl;
@@ -13,10 +14,28 @@ use js::webgl;
 
 use self::window::Window;
 
+use self::audio::AudioDevice;
 pub use self::renderer_webgl::WebGLRenderer as Renderer;
 pub use self::websocket::Websocket;
 
-pub fn run<F: FnOnce() -> T, T: FnMut(f32, &Input) -> Result<(), Error> + 'static>(app_factory: F) {
+pub struct PlatformContext();
+
+impl PlatformContext {
+    pub fn audio<T: FnMut(u8, f32, &mut [f32]) + 'static + Send>(
+        &self,
+        channels: u8,
+        cb: T,
+    ) -> AudioDevice {
+        AudioDevice::new(channels, cb)
+    }
+}
+
+pub fn run<
+    F: FnOnce(&PlatformContext) -> T,
+    T: FnMut(f32, &Input) -> Result<(), Error> + 'static,
+>(
+    app_factory: F,
+) {
     js::bootstrap();
 
     use self::console_writer::ConsoleWriter;
@@ -29,7 +48,7 @@ pub fn run<F: FnOnce() -> T, T: FnMut(f32, &Input) -> Result<(), Error> + 'stati
 
     let mut event_dispatch = window.events();
     let mut input = Input::new();
-    let mut main_loop = app_factory();
+    let mut main_loop = app_factory(&PlatformContext());
     window.set_main_loop(move || {
         let events = event_dispatch.input_events();
         input.update(&events);
