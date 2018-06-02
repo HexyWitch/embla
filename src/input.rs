@@ -264,7 +264,7 @@ pub enum InputEvent {
 struct InputState {
     pub keys_down: HashSet<Key>,
     pub mouse_buttons_down: HashSet<MouseButton>,
-    pub mouse_position: Vec2,
+    pub mouse_position: Vec2<i32>,
 }
 
 impl InputState {
@@ -309,7 +309,7 @@ impl Input {
                     self.current_state.mouse_buttons_down.remove(&button);
                 }
                 InputEvent::MouseMove(x, y) => {
-                    self.current_state.mouse_position = Vec2::new(x as f32, y as f32);
+                    self.current_state.mouse_position = Vec2::new(x, y);
                 }
             }
         }
@@ -341,7 +341,7 @@ impl Input {
             && !self.current_state.mouse_buttons_down.contains(button)
     }
 
-    pub fn mouse_position(&self) -> Vec2 {
+    pub fn mouse_position(&self) -> Vec2<i32> {
         self.current_state.mouse_position
     }
 }

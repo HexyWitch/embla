@@ -6,6 +6,7 @@ extern crate serde_derive;
 extern crate bincode;
 #[macro_use]
 extern crate failure;
+extern crate num_traits;
 
 // Web backend
 #[cfg(target_arch = "wasm32")]

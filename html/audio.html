@@ -8,12 +8,6 @@
             {
                 wasm_bindgen("./audio_bg.wasm").then(function () {
                     {
-                        // Expose some exported classes globally
-                        window.EventHandler = wasm_bindgen.EventHandler;
-                        window.InputHandler = wasm_bindgen.InputHandler;
-                        window.MainLoopCallback = wasm_bindgen.MainLoopCallback;
-                        window.AudioProcessCallback = wasm_bindgen.AudioProcessCallback;
-
                         // run main
                         wasm_bindgen.wasm.main();
                     }

@@ -6,7 +6,6 @@ mod websocket;
 use gl;
 use sdl2;
 
-use sdl2::audio::{AudioCallback, AudioSpecDesired};
 use sdl2::event::Event;
 use sdl2::video::GLProfile;
 use std::thread;

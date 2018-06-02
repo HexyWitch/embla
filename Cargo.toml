@@ -13,6 +13,7 @@ png = "*"
 serde = "*"
 serde_derive = "*"
 bincode = "*"
+num-traits = "*"
 
 [target.'cfg(target_arch="wasm32")'.dependencies]
 js = { path = "lib/js" }

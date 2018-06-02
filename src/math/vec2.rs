@@ -1,121 +1,198 @@
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
+use num_traits::{Float, Zero};
+use std::cmp::PartialEq;
 use std::convert::Into;
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct Vec2(pub f32, pub f32);
+pub struct Vec2<T> {
+    pub x: T,
+    pub y: T,
+}
 
-#[allow(dead_code)]
-impl Vec2 {
-    pub fn new(x: f32, y: f32) -> Vec2 {
-        Vec2(x, y)
+impl<T> Vec2<T> {
+    pub fn new(x: T, y: T) -> Vec2<T> {
+        Vec2 { x, y }
     }
-    pub fn zero() -> Vec2 {
-        Vec2(0.0, 0.0)
-    }
-    pub fn with_angle(angle: f32) -> Vec2 {
-        Vec2(angle.cos(), angle.sin())
-    }
+}
 
-    pub fn angle(&self) -> f32 {
-        self.1.atan2(self.0)
+impl<T: Zero> Vec2<T> {
+    pub fn zero() -> Vec2<T> {
+        Vec2 {
+            x: T::zero(),
+            y: T::zero(),
+        }
     }
-    pub fn mag(&self) -> f32 {
-        (self.0.powf(2.0) + self.1.powf(2.0)).sqrt()
+}
+
+impl<T: Float + From<f32>> Vec2<T> {
+    pub fn with_angle(angle: T) -> Vec2<T> {
+        Vec2 {
+            x: angle.cos(),
+            y: angle.sin(),
+        }
     }
-    pub fn mag_squared(&self) -> f32 {
-        self.0.powf(2.0) + self.1.powf(2.0)
+    pub fn angle(&self) -> T {
+        self.y.atan2(self.x)
     }
-    pub fn normalized(&self) -> Vec2 {
+    pub fn mag(&self) -> T {
+        (self.x.powf(2.0.into()) + self.y.powf(2.0.into())).sqrt()
+    }
+    pub fn mag_squared(&self) -> T {
+        self.x.powf(2.0.into()) + self.y.powf(2.0.into())
+    }
+    pub fn rotated(&self, a: T) -> Vec2<T> {
+        let (a_cos, a_sin) = (a.cos(), a.sin());
+        Vec2::new(
+            self.x * a_cos + self.y * a_sin,
+            self.y * a_cos + self.x * a_sin,
+        )
+    }
+    pub fn normalized(&self) -> Vec2<T> {
         self.clone() / self.mag()
     }
 }
 
-impl Into<(f32, f32)> for Vec2 {
-    fn into(self) -> (f32, f32) {
-        (self.0, self.1)
+impl<T> Into<(T, T)> for Vec2<T> {
+    fn into(self) -> (T, T) {
+        (self.x, self.y)
     }
 }
 
-impl Add for Vec2 {
-    type Output = Vec2;
+impl<T: Add<Output = T>> Add for Vec2<T> {
+    type Output = Vec2<T>;
     fn add(self, rhs: Self) -> Self {
-        Vec2(self.0 + rhs.0, self.1 + rhs.1)
+        Vec2 {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
     }
 }
 
-impl AddAssign for Vec2 {
+impl<T: AddAssign> AddAssign for Vec2<T> {
     fn add_assign(&mut self, rhs: Self) {
-        self.0 += rhs.0;
-        self.1 += rhs.1;
+        self.x += rhs.x;
+        self.y += rhs.y;
     }
 }
 
-impl Sub for Vec2 {
-    type Output = Vec2;
+impl<T: Sub<Output = T>> Sub for Vec2<T> {
+    type Output = Vec2<T>;
     fn sub(self, rhs: Self) -> Self {
-        Vec2(self.0 - rhs.0, self.1 - rhs.1)
+        Vec2 {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
     }
 }
 
-impl SubAssign for Vec2 {
+impl<T: SubAssign> SubAssign for Vec2<T> {
     fn sub_assign(&mut self, rhs: Self) {
-        self.0 -= rhs.0;
-        self.1 -= rhs.1;
+        self.x -= rhs.x;
+        self.y -= rhs.y;
     }
 }
 
-impl Mul for Vec2 {
-    type Output = Vec2;
+impl<T: Mul<Output = T>> Mul for Vec2<T> {
+    type Output = Vec2<T>;
     fn mul(self, rhs: Self) -> Self {
-        Vec2(self.0 * rhs.0, self.1 * rhs.1)
+        Vec2 {
+            x: self.x * rhs.x,
+            y: self.y * rhs.y,
+        }
     }
 }
 
-impl MulAssign for Vec2 {
+impl<T: MulAssign> MulAssign for Vec2<T> {
     fn mul_assign(&mut self, rhs: Self) {
-        self.0 *= rhs.0;
-        self.1 *= rhs.1;
+        self.x *= rhs.x;
+        self.y *= rhs.y;
     }
 }
 
-impl Mul<f32> for Vec2 {
-    type Output = Vec2;
-    fn mul(self, rhs: f32) -> Self {
-        Vec2(self.0 * rhs, self.1 * rhs)
+impl<T: Mul<Output = T> + Copy> Mul<T> for Vec2<T> {
+    type Output = Vec2<T>;
+    fn mul(self, rhs: T) -> Self {
+        Vec2 {
+            x: self.x * rhs,
+            y: self.y * rhs,
+        }
     }
 }
 
-impl MulAssign<f32> for Vec2 {
-    fn mul_assign(&mut self, rhs: f32) {
-        self.0 *= rhs;
-        self.1 *= rhs;
+impl<T: MulAssign + Copy> MulAssign<T> for Vec2<T> {
+    fn mul_assign(&mut self, rhs: T) {
+        self.x *= rhs;
+        self.y *= rhs;
     }
 }
 
-impl Div for Vec2 {
-    type Output = Vec2;
+impl<T: Div<Output = T>> Div for Vec2<T> {
+    type Output = Vec2<T>;
     fn div(self, rhs: Self) -> Self {
-        Vec2(self.0 / rhs.0, self.1 / rhs.1)
+        Vec2 {
+            x: self.x / rhs.x,
+            y: self.y / rhs.y,
+        }
     }
 }
 
-impl DivAssign for Vec2 {
+impl<T: DivAssign> DivAssign for Vec2<T> {
     fn div_assign(&mut self, rhs: Self) {
-        self.0 /= rhs.0;
-        self.1 /= rhs.1;
+        self.x /= rhs.x;
+        self.y /= rhs.y;
     }
 }
 
-impl Div<f32> for Vec2 {
-    type Output = Vec2;
-    fn div(self, rhs: f32) -> Self {
-        Vec2(self.0 / rhs, self.1 / rhs)
+impl<T: Div<Output = T> + Copy> Div<T> for Vec2<T> {
+    type Output = Vec2<T>;
+    fn div(self, rhs: T) -> Self {
+        Vec2 {
+            x: self.x / rhs,
+            y: self.y / rhs,
+        }
     }
 }
 
-impl DivAssign<f32> for Vec2 {
-    fn div_assign(&mut self, rhs: f32) {
-        self.0 /= rhs;
-        self.1 /= rhs;
+impl<T: DivAssign + Copy> DivAssign<T> for Vec2<T> {
+    fn div_assign(&mut self, rhs: T) {
+        self.x /= rhs;
+        self.y /= rhs;
     }
+}
+
+impl<T: PartialEq> PartialEq for Vec2<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.x.eq(&other.x) && self.y.eq(&other.y)
+    }
+}
+
+#[test]
+fn vec2() {
+    use std::f32;
+
+    assert_eq!(Vec2::new(14, 46), Vec2::new(14, 46));
+
+    let mut v1 = Vec2::new(6, 2);
+    let v2 = Vec2::new(2, 2);
+
+    assert_eq!(v1 + v2, Vec2::new(8, 4));
+    assert_eq!(v1 - v2, Vec2::new(4, 0));
+    assert_eq!(v1 * v2, Vec2::new(12, 4));
+    assert_eq!(v1 / v2, Vec2::new(3, 1));
+
+    v1 += v2;
+    assert_eq!(v1, Vec2::new(8, 4));
+    v1 -= v2;
+    assert_eq!(v1, Vec2::new(6, 2));
+    v1 *= v2;
+    assert_eq!(v1, Vec2::new(12, 4));
+    v1 /= v2;
+    assert_eq!(v1, Vec2::new(6, 2));
+
+    let v3 = Vec2::with_angle(f32::consts::PI * 0.5) * 10.0;
+    assert!(v3.y >= 9.99);
+
+    let v3 = v3.rotated(f32::consts::PI * 0.78);
+    assert!(v3.mag_squared() > 99.9 && v3.mag_squared() < 100.1);
+    assert!(v3.mag() > 9.99 && v3.mag() < 10.01);
 }
