@@ -3,8 +3,7 @@ mod console_writer;
 mod input;
 pub mod rand;
 pub mod rendering;
-#[allow(unused)]
-pub mod websocket;
+//pub mod websocket;
 pub mod window;
 
 use std::cell::RefCell;

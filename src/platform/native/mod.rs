@@ -2,7 +2,7 @@ pub mod audio;
 mod input;
 pub mod rand;
 pub mod rendering;
-pub mod websocket;
+//pub mod websocket;
 pub mod window;
 
 use std::cell::RefCell;
