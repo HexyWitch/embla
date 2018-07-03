@@ -1,6 +1,8 @@
 use sdl2;
 use sdl2::audio::{AudioCallback, AudioSpecDesired};
 
+use super::Context;
+
 struct AudioOutputCallback {
     channels: u8,
     sample_rate: f32,
@@ -25,7 +27,7 @@ pub struct AudioDevice(sdl2::audio::AudioDevice<AudioOutputCallback>);
 
 impl AudioDevice {
     pub fn new<T: FnMut(u8, f32, &mut [f32]) + 'static + Send>(
-        audio: &sdl2::AudioSubsystem,
+        context: &Context,
         channels: u8,
         cb: T,
     ) -> AudioDevice {
@@ -35,7 +37,8 @@ impl AudioDevice {
             samples: None,            // default sample size
         };
 
-        let device = audio
+        let device = context
+            .audio
             .open_playback(None, &desired_spec, |spec| AudioOutputCallback {
                 sample_rate: spec.freq as f32,
                 channels: spec.channels,

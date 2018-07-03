@@ -3,7 +3,7 @@ extern crate embla;
 use std::f32;
 
 fn main() {
-    embla::run(|context| {
+    embla::init(|context| {
         let mut phase_l = 0.0;
         let mut phase_r = 0.0;
         let output = context.audio(2, move |channel, sample_rate, out| {
@@ -21,6 +21,7 @@ fn main() {
                 }
             }
         });
+
         move |_dt, _input| {
             // hold on to the audio output for the duration of the application
             let _audio_output = &output;

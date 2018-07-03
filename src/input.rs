@@ -245,7 +245,7 @@ pub enum MouseButton {
     Right,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum InputEvent {
     MouseMove(i32, i32),
     MouseDown {
@@ -258,6 +258,7 @@ pub enum InputEvent {
     },
     KeyDown(Key),
     KeyUp(Key),
+    Exit,
 }
 
 #[derive(Clone)]
@@ -281,6 +282,7 @@ impl InputState {
 pub struct Input {
     last_state: InputState,
     current_state: InputState,
+    events: Vec<InputEvent>,
 }
 
 impl Input {
@@ -288,14 +290,15 @@ impl Input {
         Input {
             last_state: InputState::new(),
             current_state: InputState::new(),
+            events: Vec::new(),
         }
     }
 
-    pub fn update(&mut self, events: &[InputEvent]) {
+    pub fn update(&mut self, events: Vec<InputEvent>) {
         self.last_state = self.current_state.clone();
 
         for e in events {
-            match *e {
+            match e {
                 InputEvent::KeyDown(key) => {
                     self.current_state.keys_down.insert(key);
                 }
@@ -311,7 +314,10 @@ impl Input {
                 InputEvent::MouseMove(x, y) => {
                     self.current_state.mouse_position = Vec2::new(x, y);
                 }
+                _ => {}
             }
+
+            self.events.push(e);
         }
     }
 
@@ -343,5 +349,9 @@ impl Input {
 
     pub fn mouse_position(&self) -> Vec2<i32> {
         self.current_state.mouse_position
+    }
+
+    pub fn events<'a>(&'a mut self) -> impl Iterator<Item = InputEvent> + 'a {
+        self.events.drain(0..)
     }
 }

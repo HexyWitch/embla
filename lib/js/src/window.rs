@@ -5,22 +5,15 @@ pub fn bootstrap() {
     eval(include_str!("../js/window.js"));
 }
 
+pub type GLContext = JsValue;
 pub type CanvasWindow = JsValue;
 
 #[wasm_bindgen]
 extern "C" {
     pub fn create_canvas_window(canvas_id: &str, input_handler: InputHandler) -> CanvasWindow;
-    pub fn set_main_loop(cb: MainLoopCallback);
-}
 
-#[wasm_bindgen]
-pub struct MainLoopCallback(pub Box<FnMut() + 'static>);
-
-#[wasm_bindgen]
-impl MainLoopCallback {
-    pub fn call(&mut self) {
-        (*self.0)();
-    }
+    pub fn get_window_context(window: &CanvasWindow) -> GLContext;
+    pub fn gl_set_current_context(context: &GLContext);
 }
 
 type MouseX = i32;

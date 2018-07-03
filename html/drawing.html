@@ -2,11 +2,11 @@
 
 <head>
     <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
-    <script src='./audio.js'></script>
+    <script src='./drawing.js'></script>
     <script>
         window.addEventListener('load', function () {
             {
-                wasm_bindgen("./audio_bg.wasm").then(function () {
+                wasm_bindgen("./drawing_bg.wasm").then(function () {
                     // run main
                     wasm_bindgen.wasm.main();
                 });

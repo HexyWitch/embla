@@ -1,9 +1,12 @@
 use js;
 
+use super::Context;
+
 pub struct AudioDevice(js::audio::AudioOutputHandle);
 
 impl AudioDevice {
     pub fn new<T: FnMut(u8, f32, &mut [f32]) + 'static + Send>(
+        _: &Context,
         channels: u8,
         callback: T,
     ) -> AudioDevice {

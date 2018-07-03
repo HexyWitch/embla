@@ -18,15 +18,6 @@ pub fn bootstrap() {
     use super::eval;
     eval(include_str!("../../js/webgl.js"));
 }
-
-type GlContext = JsValue;
-
-#[wasm_bindgen]
-extern "C" {
-    pub fn get_canvas_context(canvas_id: &str) -> GlContext;
-    pub fn set_global_context(context: GlContext);
-}
-
 #[wasm_bindgen]
 extern "C" {
     pub fn gl_enable(capability: GLenum);

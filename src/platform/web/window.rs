@@ -1,20 +1,52 @@
 use std::cell::RefCell;
-use std::mem;
 use std::rc::Rc;
 
 use failure::Error;
 
 use input::InputEvent;
 use js;
-use js::window::{CanvasWindow, InputHandler as JsInputHandler, MainLoopCallback};
+use js::window::{CanvasWindow, InputHandler as JsInputHandler};
+use window::WindowSettings;
 
 use super::input::{to_key, to_mouse_button};
+use super::Context;
+
+pub struct GLContext(js::window::GLContext);
 
 type InputEvents = Rc<RefCell<Vec<InputEvent>>>;
 
 pub struct Window {
     js_window: CanvasWindow,
     input_events: InputEvents,
+}
+
+impl Window {
+    pub fn new(_: &mut Context, settings: WindowSettings) -> Result<Window, Error> {
+        let input_events = Rc::new(RefCell::new(Vec::new()));
+        let handler = input_handler(&input_events);
+        let WindowSettings { canvas_id, .. } = settings;
+
+        let canvas_id =
+            canvas_id.ok_or_else(|| format_err!("missing canvas id in WindowSettings"))?;
+        Ok(Window {
+            js_window: js::window::create_canvas_window(&canvas_id, handler),
+            input_events,
+        })
+    }
+
+    pub fn events(&self) -> impl Iterator<Item = InputEvent> {
+        let mut events = self.input_events.borrow_mut();
+        let events = events.drain(0..).collect::<Vec<InputEvent>>();
+        events.into_iter()
+    }
+
+    pub fn gl_create_context(&self) -> GLContext {
+        GLContext(js::window::get_window_context(&self.js_window))
+    }
+
+    pub fn gl_set_current(&self, gl_context: &GLContext) {
+        js::window::gl_set_current_context(&gl_context.0);
+    }
 }
 
 fn input_handler(input_events: &Rc<RefCell<Vec<InputEvent>>>) -> JsInputHandler {
@@ -52,32 +84,4 @@ fn input_handler(input_events: &Rc<RefCell<Vec<InputEvent>>>) -> JsInputHandler 
     });
 
     handler
-}
-
-impl Window {
-    pub fn new(canvas_id: &str) -> Result<Window, Error> {
-        let input_events = Rc::new(RefCell::new(Vec::new()));
-        let handler = input_handler(&input_events);
-        Ok(Window {
-            js_window: js::window::create_canvas_window(canvas_id, handler),
-            input_events,
-        })
-    }
-
-    pub fn events(&mut self) -> EventDispatch {
-        EventDispatch(self.input_events.clone())
-    }
-
-    pub fn set_main_loop<T: FnMut() + 'static>(self, f: T) {
-        js::window::set_main_loop(MainLoopCallback(Box::new(f)));
-    }
-}
-
-pub struct EventDispatch(InputEvents);
-
-impl EventDispatch {
-    pub fn input_events(&mut self) -> Vec<InputEvent> {
-        let mut input_events = self.0.borrow_mut();
-        mem::replace(&mut *input_events, Vec::new())
-    }
 }

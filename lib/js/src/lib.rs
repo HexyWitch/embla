@@ -11,10 +11,22 @@ pub mod window;
 use wasm_bindgen::prelude::*;
 
 pub fn bootstrap() {
+    eval(include_str!("../js/lib.js"));
+
     audio::bootstrap();
     webgl::bootstrap();
     websocket::bootstrap();
     window::bootstrap();
+}
+
+#[wasm_bindgen]
+pub struct MainLoopCallback(pub Box<FnMut() + 'static>);
+
+#[wasm_bindgen]
+impl MainLoopCallback {
+    pub fn call(&mut self) {
+        (*self.0)();
+    }
 }
 
 #[wasm_bindgen]
@@ -25,4 +37,6 @@ extern "C" {
     pub fn log(s: &str);
 
     pub fn eval(s: &str);
+    pub fn set_main_loop(cb: MainLoopCallback);
+    pub fn rand() -> f32;
 }

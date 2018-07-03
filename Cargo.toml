@@ -22,3 +22,4 @@ js = { path = "lib/js" }
 sdl2 = "*"
 gl = "*"
 ws = "*"
+rand = "*"
