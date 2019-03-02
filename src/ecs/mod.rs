@@ -1,6 +1,7 @@
 use std::any::TypeId;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
+use std::fmt;
 
 use failure::Error;
 
@@ -8,9 +9,21 @@ mod component;
 
 use self::component::{ComponentSet, ComponentStorage, GenericComponentStorage};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Entity {
+    index: usize,
+    generation: u32,
+}
+
+impl fmt::Display for Entity {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}:{}", self.index, self.generation)
+    }
+}
+
 pub struct World {
     components: HashMap<TypeId, RefCell<Box<GenericComponentStorage>>>,
-    entities: Vec<bool>,
+    entities: Vec<u32>,
     dead: Vec<usize>,
 }
 
@@ -30,46 +43,55 @@ impl World {
         );
     }
 
-    pub fn entity<'a>(&'a mut self, id: usize) -> Option<EntityEntry<'a>> {
-        if self.entities.get(id).cloned().unwrap_or(false) {
-            Some(EntityEntry {
-                world: self,
-                id: id,
-            })
-        } else {
-            None
+    pub fn entity<'a>(&'a mut self, e: Entity) -> Option<EntityEntry<'a>> {
+        match self.entities.get(e.index) {
+            Some(&gen) if gen == e.generation => Some(EntityEntry { world: self, e: e }),
+            _ => None,
         }
     }
 
     pub fn add_entity<'a>(&'a mut self) -> EntityEntry<'a> {
-        let id = if let Some(id) = self.dead.pop() {
-            self.entities[id] = true;
-            id
+        let entity_id = if let Some(index) = self.dead.pop() {
+            let generation = self.entities[index] + 1;
+            self.entities[index] = generation;
+            Entity { index, generation }
         } else {
-            let id = self.entities.len();
-            self.entities.push(true);
-            id
+            let index = self.entities.len();
+            self.entities.push(0);
+            Entity {
+                index,
+                generation: 0,
+            }
         };
         EntityEntry {
             world: self,
-            id: id,
+            e: entity_id,
         }
     }
 
-    pub fn remove_entity(&mut self, id: usize) {
-        for (_, storage) in self.components.iter() {
-            storage.borrow_mut().remove(id);
+    pub fn remove_entity(&mut self, e: Entity) {
+        match self.entities.get(e.index) {
+            Some(&gen) if gen == e.generation => {
+                for (_, storage) in self.components.iter() {
+                    storage.borrow_mut().remove(e.index);
+                }
+                self.dead.push(e.index);
+            }
+            _ => {}
         }
-        self.entities[id] = false;
-        self.dead.push(id);
     }
 
-    pub fn get_component<'b, C: 'static>(&'b self, id: usize) -> Option<Ref<'b, C>> {
-        let storage = self.get_storage::<C>();
-        if storage.contains(id) {
-            Some(Ref::map(storage, |s| s.get(id).unwrap()))
-        } else {
-            None
+    pub fn get_component<'b, C: 'static>(&'b self, e: Entity) -> Option<Ref<'b, C>> {
+        match self.entities.get(e.index) {
+            Some(&gen) if gen == e.generation => {
+                let storage = self.get_storage::<C>();
+                if storage.contains(e.index) {
+                    Some(Ref::map(storage, |s| s.get(e.index).unwrap()))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
     }
 
@@ -97,39 +119,58 @@ impl World {
         ))
     }
 
-    fn insert_component<T: 'static>(&mut self, id: usize, c: T) -> Result<(), Error> {
-        self.get_storage_mut::<T>()?.insert(id, c);
+    fn insert_component<T: 'static>(&mut self, e: Entity, c: T) -> Result<(), Error> {
+        if e.index >= self.entities.len() || e.generation != self.entities[e.index] {
+            return Err(format_err!("Entity {} is dead", e));
+        }
+        self.get_storage_mut::<T>()?.insert(e.index, c);
         Ok(())
     }
 
-    fn remove_component<T: 'static>(&mut self, id: usize) -> Result<Option<T>, Error> {
-        Ok(self.get_storage_mut::<T>()?.remove(id))
+    fn remove_component<T: 'static>(&mut self, e: Entity) -> Result<Option<T>, Error> {
+        if e.index >= self.entities.len() || e.generation != self.entities[e.index] {
+            return Err(format_err!("Entity {} is dead", e));
+        }
+        Ok(self.get_storage_mut::<T>()?.remove(e.index))
     }
 
-    pub fn with_components<'b, C: ComponentSet<'b>>(
-        &'b self,
-    ) -> Box<Iterator<Item = C::MutRefs> + 'b> {
-        C::iter_mut_refs(&self.components)
+    pub fn iter<'b, C: ComponentSet<'b>>(&'b self) -> Box<Iterator<Item = C::IterItem> + 'b> {
+        C::iter(&self.components)
+    }
+
+    pub fn iter_entities<'a, C: ComponentSet<'a> + 'static>(
+        &'a self,
+    ) -> Box<Iterator<Item = (Entity, C::IterItem)> + 'a> {
+        let entities = &self.entities;
+        Box::new(C::indexed(&self.components).map(move |(e, cs)| {
+            (
+                Entity {
+                    index: e,
+                    generation: entities[e],
+                },
+                cs,
+            )
+        }))
     }
 }
 
 pub struct EntityEntry<'a> {
     world: &'a mut World,
-    id: usize,
+    e: Entity,
 }
 
 impl<'a> EntityEntry<'a> {
-    pub fn id(&self) -> usize {
-        self.id
+    pub fn entity(&self) -> Entity {
+        self.e
     }
 
     pub fn insert<C: 'static>(&mut self, c: C) -> Result<&mut Self, Error> {
-        self.world.insert_component(self.id, c)?;
+        self.world.insert_component(self.e, c)?;
         Ok(self)
     }
 
     pub fn remove<C: 'static>(&mut self) -> Result<&mut Self, Error> {
-        self.world.remove_component::<C>(self.id)?;
+        self.world.remove_component::<C>(self.e)?;
         Ok(self)
     }
 }
@@ -154,23 +195,27 @@ mod tests {
             .unwrap()
             .insert(Velocity(5, 5))
             .unwrap()
-            .id();
+            .entity();
         let e2 = world
             .add_entity()
             .insert(Position(0, 0))
             .unwrap()
             .insert(Velocity(3, 4))
             .unwrap()
-            .id();
-        let e3 = world.add_entity().insert(Position(0, 0)).unwrap().id();
+            .entity();
+        let e3 = world.add_entity().insert(Position(0, 0)).unwrap().entity();
 
-        for (mut pos,) in world.with_components::<(Position,)>() {
+        let position_entities = &[e1, e2, e3];
+        for (entity, (mut pos,)) in world.iter_entities::<(Position,)>() {
             pos.0 = 10;
+            assert!(position_entities.contains(&entity));
         }
 
-        for (mut pos, vel) in world.with_components::<(Position, Velocity)>() {
+        let velocity_entities = &[e1, e2];
+        for (entity, (mut pos, vel)) in world.iter_entities::<(Position, Velocity)>() {
             pos.0 += vel.0;
             pos.1 += vel.1;
+            assert!(velocity_entities.contains(&entity));
         }
 
         assert_eq!(world.get_component::<Position>(e1).unwrap().0, 15);
@@ -179,20 +224,23 @@ mod tests {
 
         world.remove_component::<Position>(e1).unwrap();
 
-        for (mut pos,) in world.with_components::<(Position,)>() {
+        for (mut pos,) in world.iter::<(Position,)>() {
             pos.0 = 5;
         }
 
         assert_eq!(world.get_component::<Position>(e2).unwrap().0, 5);
         assert_eq!(world.get_component::<Position>(e3).unwrap().0, 5);
 
-        world.remove_entity(e3);
-
-        for (mut pos, vel) in world.with_components::<(Position, Velocity)>() {
+        for (mut pos, vel) in world.iter::<(Position, Velocity)>() {
             pos.0 += vel.0;
             pos.1 += vel.1;
         }
 
         assert_eq!(world.get_component::<Position>(e2).unwrap().0, 8);
+
+        world.remove_entity(e3);
+        let e4 = world.add_entity().entity();
+        assert_eq!(e3.index, e4.index);
+        assert_ne!(e3, e4);
     }
 }
