@@ -1,6 +1,6 @@
 use std::any::TypeId;
 use std::cell::{Ref, RefCell, RefMut};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 use failure::Error;
 
@@ -9,16 +9,14 @@ mod component;
 use self::component::{ComponentSet, ComponentStorage, GenericComponentStorage};
 
 pub struct World {
-    component_index: HashMap<TypeId, BTreeSet<usize>>,
     components: HashMap<TypeId, RefCell<Box<GenericComponentStorage>>>,
-    entities: Vec<Option<HashMap<TypeId, usize>>>,
+    entities: Vec<bool>,
     dead: Vec<usize>,
 }
 
 impl World {
     pub fn new() -> World {
         World {
-            component_index: HashMap::new(),
             components: HashMap::new(),
             entities: Vec::new(),
             dead: Vec::new(),
@@ -26,8 +24,6 @@ impl World {
     }
 
     pub fn register_component<C: 'static>(&mut self) {
-        self.component_index
-            .insert(TypeId::of::<C>(), BTreeSet::new());
         self.components.insert(
             TypeId::of::<C>(),
             RefCell::new(Box::new(ComponentStorage::<C>::new())),
@@ -35,7 +31,7 @@ impl World {
     }
 
     pub fn entity<'a>(&'a mut self, id: usize) -> Option<EntityEntry<'a>> {
-        if self.entities.get(id).and_then(|e| e.as_ref()).is_some() {
+        if self.entities.get(id).cloned().unwrap_or(false) {
             Some(EntityEntry {
                 world: self,
                 id: id,
@@ -47,11 +43,11 @@ impl World {
 
     pub fn add_entity<'a>(&'a mut self) -> EntityEntry<'a> {
         let id = if let Some(id) = self.dead.pop() {
-            self.entities[id] = Some(HashMap::new());
+            self.entities[id] = true;
             id
         } else {
             let id = self.entities.len();
-            self.entities.push(Some(HashMap::new()));
+            self.entities.push(true);
             id
         };
         EntityEntry {
@@ -61,52 +57,37 @@ impl World {
     }
 
     pub fn remove_entity(&mut self, id: usize) {
-        if let Some(e) = self.entities.remove(id) {
-            for type_id in e.keys() {
-                self.components
-                    .get_mut(type_id)
-                    .unwrap()
-                    .borrow_mut()
-                    .remove(id)
-            }
+        for (_, storage) in self.components.iter() {
+            storage.borrow_mut().remove(id);
         }
-        if id < self.entities.len() {
-            self.entities[id] = None;
-        }
+        self.entities[id] = false;
         self.dead.push(id);
     }
 
     pub fn get_component<'b, C: 'static>(&'b self, id: usize) -> Option<Ref<'b, C>> {
-        if let Some(k) = self.entities
-            .get(id)
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .get(&TypeId::of::<C>())
-        {
-            Some(Ref::map(
-                self.components
-                    .get(&TypeId::of::<C>())
-                    .expect("component not registered")
-                    .borrow(),
-                |v| {
-                    v.as_any()
-                        .downcast_ref::<ComponentStorage<C>>()
-                        .unwrap()
-                        .get(*k)
-                        .unwrap()
-                },
-            ))
+        let storage = self.get_storage::<C>();
+        if storage.contains(id) {
+            Some(Ref::map(storage, |s| s.get(id).unwrap()))
         } else {
             None
         }
     }
 
-    fn get_storage<T: 'static>(&mut self) -> Result<RefMut<ComponentStorage<T>>, Error> {
+    fn get_storage<T: 'static>(&self) -> Ref<ComponentStorage<T>> {
+        Ref::map(
+            self.components
+                .get(&TypeId::of::<T>())
+                .expect("component not registered")
+                .borrow(),
+            |s| s.as_any().downcast_ref::<ComponentStorage<T>>().unwrap(),
+        )
+    }
+
+    fn get_storage_mut<T: 'static>(&mut self) -> Result<RefMut<ComponentStorage<T>>, Error> {
         Ok(RefMut::map(
             self.components
                 .get(&TypeId::of::<T>())
-                .ok_or_else(|| format_err!("component not registered"))?
+                .expect("component not registered")
                 .borrow_mut(),
             |s| {
                 s.as_any_mut()
@@ -116,32 +97,19 @@ impl World {
         ))
     }
 
-    fn entity_mut(&mut self, id: usize) -> Result<&mut HashMap<TypeId, usize>, Error> {
-        Ok(self.entities
-            .get_mut(id)
-            .ok_or_else(|| format_err!("entity does not exist"))?
-            .as_mut()
-            .ok_or_else(|| format_err!("entity is not alive"))?)
-    }
-
     fn insert_component<T: 'static>(&mut self, id: usize, c: T) -> Result<(), Error> {
-        let k = self.get_storage::<T>()?.insert(id, c);
-        self.entity_mut(id)?.insert(TypeId::of::<T>(), k);
+        self.get_storage_mut::<T>()?.insert(id, c);
         Ok(())
     }
 
     fn remove_component<T: 'static>(&mut self, id: usize) -> Result<Option<T>, Error> {
-        if let Some(k) = self.entity_mut(id)?.remove(&TypeId::of::<T>()) {
-            Ok(self.get_storage::<T>()?.remove(k))
-        } else {
-            Ok(None)
-        }
+        Ok(self.get_storage_mut::<T>()?.remove(id))
     }
 
     pub fn with_components<'b, C: ComponentSet<'b>>(
         &'b self,
     ) -> Box<Iterator<Item = C::MutRefs> + 'b> {
-        C::iter_mut_refs(&self.entities, &self.components)
+        C::iter_mut_refs(&self.components)
     }
 }
 
