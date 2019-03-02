@@ -26,7 +26,6 @@ mod platform;
 
 pub mod assets;
 pub mod audio;
-pub mod ecs;
 pub mod graphics;
 pub mod input;
 pub mod math;
