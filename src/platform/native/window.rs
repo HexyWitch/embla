@@ -31,7 +31,10 @@ impl Window {
 
         let _gl_context = window.gl_create_context();
         gl::load_with(|name| context.video.gl_get_proc_address(name) as *const _);
-        context.video.gl_set_swap_interval(SwapInterval::VSync);
+        context
+            .video
+            .gl_set_swap_interval(SwapInterval::VSync)
+            .map_err(|e| format_err!("{}", e))?;
 
         Ok(Window(window))
     }
