@@ -122,10 +122,14 @@ macro_rules! implement_tuple_set {
                             entity += 1;
                         };
 
+                        // we can transmute the lifetime of the references to the lifetime of the iterator because:
+                        // * this iterator holds a mutable reference to the component storage, guaranteeing there are no
+                        //   other references to the storage or any component entry in the storage
+                        // * the iterator can return only one mutable reference to each unique component entry
                         unsafe {
                             next_entity.map(|e| {
                                 ($(
-                                    mem::transmute(self.$xn.get_mut(e).unwrap()),
+                                    mem::transmute::<&mut $x, &'a mut $x>(self.$xn.get_mut(e).unwrap()),
                                 )*)
                             })
                         }
