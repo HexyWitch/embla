@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use assets::Image;
 
@@ -10,11 +10,11 @@ pub struct TextureImage {
     id: u64,
     width: u32,
     height: u32,
-    image: Rc<Image>,
+    image: Arc<Image>,
 }
 
 impl TextureImage {
-    pub fn new(image: Rc<Image>) -> TextureImage {
+    pub fn new(image: Arc<Image>) -> TextureImage {
         let mut hasher: DefaultHasher = DefaultHasher::new();
         hasher.write(&image.data);
         hasher.write_u32(image.width);
